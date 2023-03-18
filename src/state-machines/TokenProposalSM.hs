@@ -13,15 +13,15 @@
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE ViewPatterns          #-}
 {-# LANGUAGE ImportQualifiedPost   #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
 {-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
 {-# OPTIONS_GHC -g -fplugin-opt PlutusTx.Plugin:coverage-all #-}
 -- You need to use all of these to get coverage
 
--- | A guessing game that
---
---   * Uses a state machine to keep track of the current secret word
---   * Uses a token to keep track of who is allowed to make a guess
---
+
+-----------------------------------------------------------------------------------------------------------------------
+-- | A State Machine for users to cast votes based on Quadratic Formula for being AGAINST OR INFAVOR of CRYPTO PROJECTS
+-----------------------------------------------------------------------------------------------------------------------
 
 module TokenProposalSM where
 
@@ -53,6 +53,17 @@ import Plutus.Contract.Test.Coverage.Analysis
 import PlutusTx.Coverage
 import Prelude qualified as Haskell
 
+data TPParam = TPParam {
+
+    tpParamLockAddress :: Address,
+    -- ^ Payment address of the wallet locking some funds in exchange of vote credits
+    tpParamStartTime :: POSIXTime
+    -- ^ starting time of the TokenProposalMachine
+} deriving (Haskell.Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)
+
+PlutusTx.makeLift ''TPParam
+
 
 -- Data types to be used in our StateMachines Input Actions
 type TokenPolicyHash = BuiltinByteString
@@ -72,3 +83,10 @@ data SMInputActions = InstantiateSM
      ------------------  the 2nd is the Amount for credits received initial
      deriving stock (Haskell.Show, Generic)
      deriving anyclass (ToJSON, FromJSON)
+
+
+-- Schema of the statemachine consisting of two endpoints with their parameters
+-- We will update the parameters, is just for compiling for now
+type TPPStateMachineSchema =
+        Endpoint "lock" TPParam
+        .\/ Endpoint "cast-vote" TPParam

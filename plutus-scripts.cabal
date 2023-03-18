@@ -1,0 +1,53 @@
+Cabal-Version:      3.4
+Name:               plutus-script
+Version:            0.1.0.0
+Author:             James Browning
+Maintainer:         james.browning@iohk.io
+Build-Type:         Simple
+Copyright:          © 2022 James Browning
+-- License:            Apache-2.0
+-- License-files:      LICENSE
+
+library
+  hs-source-dirs:      src/minting-policy
+  exposed-modules:     ScamDetector
+  build-depends:       aeson
+                     , base ^>=4.14.1.0
+                     , bytestring
+                     , containers
+                     , data-default
+                     , freer-extras
+                     , cardano-api
+                     , plutus-contract
+                     , plutus-ledger
+                     , plutus-ledger-api
+                     , plutus-script-utils
+                     , plutus-tx-constraints
+                     , lens 
+                     , cardano-node-emulator
+                     , plutus-tx-plugin
+                     , plutus-tx
+                     , text
+                     , serialise
+                     , base16-bytestring
+                     , cardano-ledger-core
+                     , cardano-crypto-class
+  default-language:    Haskell2010
+  ghc-options:         -Wall -fobject-code -fno-ignore-interface-pragmas -fno-omit-interface-pragmas -fno-strictness -fno-spec-constr -fno-specialise
+
+-- executable crypto-policy
+--   main-is: crypto-policy.hs
+--   hs-source-dirs:      app
+--   ghc-options:         -Wall
+--   build-depends:       base ^>= 4.14.1.0
+--                      , plutus-ledger
+--                      , plutus-ledger-api
+--                      , plutus-script-utils
+--                      , plutus-tx
+--                      , bytestring
+--                      , cardano-api
+--                      , plutus-core
+--                      , base16-bytestring
+--                      , aeson
+--                      , text
+--                      , cardano-ledger-core

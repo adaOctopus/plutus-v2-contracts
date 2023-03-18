@@ -1,12 +1,4 @@
-# plutus-vasil-v2
+# Plutus V2 Contracts & Testing
 
 
-This is a fork of the james-iohk/plutus-script repository.
-
-Its purpose it to compile Plutus V2 Scripts in order to utilise all Vasil features.
-
-Scripts Compiling ATM
-
-- CryptoToken minting policy with datum, redeemer & parameterized policy.
-- Utility functions
-- Liquidity pool and lottery ticket contracts.
+This repo is to be used as reference with smart contract examples and their testing suites.

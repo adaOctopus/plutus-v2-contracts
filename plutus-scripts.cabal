@@ -9,7 +9,7 @@ Copyright:          © 2022 James Browning
 -- License-files:      LICENSE
 
 library
-  hs-source-dirs:      src/minting-policy
+  hs-source-dirs:      src/state-machines
   exposed-modules:     TokenProposalSM
   build-depends:       aeson
                      , base ^>=4.14.1.0

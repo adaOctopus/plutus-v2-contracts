@@ -12,6 +12,7 @@
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE ViewPatterns          #-}
+{-# LANGUAGE ImportQualifiedPost   #-}
 {-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
 {-# OPTIONS_GHC -g -fplugin-opt PlutusTx.Plugin:coverage-all #-}
 -- You need to use all of these to get coverage
@@ -51,3 +52,23 @@ import PlutusTx.Prelude (Bool (False, True), BuiltinByteString, Eq, Maybe (Just,
 import Plutus.Contract.Test.Coverage.Analysis
 import PlutusTx.Coverage
 import Prelude qualified as Haskell
+
+
+-- Data types to be used in our StateMachines Input Actions
+type TokenPolicyHash = BuiltinByteString
+type InFavorVote     = BuiltinByteString
+type AgainstVote     = BuiltinByteString
+data VoteChoice      = InFavorVote 
+     | AgainstVote
+     deriving stock (Haskell.Show, Generic)
+     deriving anyclass (ToJSON, FromJSON)
+
+
+data SMInputActions = InstantiateSM 
+     | GetCreditVotes Address Haskell.Integer
+     ----------------- ^ Address to receive credit votes, and Integer is the amount of credits requested to be checked
+     | CastTokenVote TokenPolicyHash VoteChoice Address Haskell.Integer Haskell.Integer
+     ----------------- ^ 2 initial arguments are self-explanatory the 1st Integer is the amount of credit votes given 
+     ------------------  the 2nd is the Amount for credits received initial
+     deriving stock (Haskell.Show, Generic)
+     deriving anyclass (ToJSON, FromJSON)

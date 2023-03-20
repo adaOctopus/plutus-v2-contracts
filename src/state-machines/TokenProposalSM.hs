@@ -59,7 +59,8 @@ data TPParam = TPParam {
 
     tpParamLockAddress :: Address,
     -- ^ Payment address of the wallet locking some funds in exchange of vote credits
-    tpParamStartTime :: POSIXTime
+    tpParamLockAmount :: Haskell.Integer
+--     tpParamStartTime :: POSIXTime
     -- ^ starting time of the TokenProposalMachine
 } deriving (Haskell.Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
@@ -83,7 +84,8 @@ instance Eq VoteChoice where
      _ == _                      = False
 
 -- All The Actions the SM accepts
-data SMInputActions = InstantiateSM 
+data SMInputActions = 
+     MintSMToken
      | GetCreditVotes Address Haskell.Integer
      ----------------- ^ Address to receive credit votes, and Integer is the amount of credits requested to be checked
      | CastTokenVote TokenPolicyHash VoteChoice Address Haskell.Integer Haskell.Integer
@@ -94,9 +96,9 @@ data SMInputActions = InstantiateSM
 
 -- The Possible States of the SM
 data TPSMState = 
-     Running
+     RunSM MintingPolicyHash TokenName
      -- ^ Only GetCrediitVotes action is allowed here
-     | DistributedVoteCredits MintingPolicyHash Haskell.Integer Address
+     | LockedFundsGotCredits MintingPolicyHash Haskell.Integer Address
      -- ^ Only CastTokenVote action is allowed here
        ----------------------------------------- ^ this is the amount of ADA locked in Lovelace and the Address of the person who locked the funds
      | VoteHasBeenCasted MintingPolicyHash TokenPolicyHash VoteChoice Haskell.Integer Address
@@ -107,8 +109,8 @@ data TPSMState =
 
 instance Eq TPSMState where
     {-# INLINABLE (==) #-}
-    Running == Running                                                                        = True 
-    (DistributedVoteCredits mph hintr adr) == (DistributedVoteCredits mph' hintr' adr')       = (mph == mph') && (hintr == hintr') && (adr == adr')
+    (RunSM mph tn) == (RunSM mph' tn')                                                        = (mph == mph') && (tn == tn') 
+    (LockedFundsGotCredits mph hintr adr) == (LockedFundsGotCredits mph' hintr' adr')         = (mph == mph') && (hintr == hintr') && (adr == adr')
     (VoteHasBeenCasted mph tph vc hintr adr) == (VoteHasBeenCasted mph' tph' vc' hintr' adr') =  (mph == mph') && (tph == tph') && (vc == vc') && (hintr == hintr') && (adr == adr')
     Finished == Finished                                                                      = True
     _ == _                                                                                    = traceIfFalse "states not equal" False
@@ -132,7 +134,8 @@ creditToken mps tn = Value.singleton (Value.mpsSymbol mps) tn 1
 
 -- | Dividing lovelace with 1000000 to find exact ada
 -- | We calculate the square root of that number 
--- | We round that number for simplicity. The result number is the amount of VoteCredits
+-- | We round that number for simplicity. 
+-- | The result number is the amount of VoteCredits
 quadraticVoteRatio :: (Haskell.Floating a, Haskell.RealFrac a, Haskell.Integral b) => a -> b
 quadraticVoteRatio adaFunds = Haskell.round . Haskell.sqrt $ (adaFunds Haskell./ 1000000)
 
@@ -141,3 +144,48 @@ quadraticVoteRatio adaFunds = Haskell.round . Haskell.sqrt $ (adaFunds Haskell./
 type TPPStateMachineSchema =
         Endpoint "lock" TPParam
         .\/ Endpoint "cast-vote" TPParam
+
+-- | Error tracking data types
+data TPError =
+    TPContractError ContractError
+    | TPSMError SM.SMContractError
+    deriving stock (Haskell.Show, Generic)
+    deriving anyclass (ToJSON, FromJSON)
+
+makeClassyPrisms ''TPError
+
+instance AsContractError TPError where
+    _ContractError = _TPContractError . _ContractError
+
+instance SM.AsSMContractError TPError where
+    _SMContractError = _TPSMError . SM._SMContractError
+
+
+-- The 'Token Proposal Param' parameter is not used in the validation. It is meant to
+-- parameterize the script address depending based on the value of 'TPParam'.
+{-# INLINABLE transitionFunction #-}
+transitionFunction
+    :: TPParam
+    -> State TPSMState
+    -> SMInputActions
+    -> Maybe (TxConstraints Void Void, State TPSMState)
+transitionFunction TPParam{tpParamLockAddress=adr,tpParamLockAmount=adaV} State{stateData=oldStateData, stateValue=oldStateValue} input = case (oldStateData, input) of 
+     (RunSM mph tn, MintSMToken) -> 
+          let constraints = Constraints.mustMintCurrency mph tn 1 in
+               Just (
+                    constraints,
+                    State {
+                         stateData  = LockedFundsGotCredits mph adaV adr,
+                         stateValue = Ada.lovelaceValueOf adaV
+                    }
+               )
+     _                          -> Nothing
+
+
+type TokenProposalStateMachine = SM.StateMachine TPSMState SMInputActions
+
+{-# INLINABLE machineF #-}
+machineF :: TPParam -> TokenProposalStateMachine
+machineF tpParam = SM.mkStateMachine Nothing (transitionFunction tpParam) isFinal where
+    isFinal Finished = True
+    isFinal _        = False

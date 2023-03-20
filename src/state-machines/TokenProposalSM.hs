@@ -114,9 +114,27 @@ instance Eq TPSMState where
     _ == _                                                                                    = traceIfFalse "states not equal" False
 
 
--- | The token that represents the right to cast votes
+-- | The token that represents the RIGHT TO CAST VOTES
 newtype VotePermiToken = VotePermiToken { unVPToken :: Value }
     deriving newtype (Eq, Haskell.Show)
+
+permitToken :: MintingPolicyHash -> TokenName -> Value
+permitToken mps tn = Value.singleton (Value.mpsSymbol mps) tn 1
+
+
+-- | The token that represents the VOTE CREDITS
+newtype VoteCreditToken = VoteCreditToken { unVCToken :: Value }
+    deriving newtype (Eq, Haskell.Show)
+
+creditToken :: MintingPolicyHash -> TokenName -> Value
+creditToken mps tn = Value.singleton (Value.mpsSymbol mps) tn 1
+
+
+-- | Dividing lovelace with 1000000 to find exact ada
+-- | We calculate the square root of that number 
+-- | We round that number for simplicity. The result number is the amount of VoteCredits
+quadraticVoteRatio :: (Haskell.Floating a, Haskell.RealFrac a, Haskell.Integral b) => a -> b
+quadraticVoteRatio adaFunds = Haskell.round . Haskell.sqrt $ (adaFunds Haskell./ 1000000)
 
 -- Schema of the statemachine consisting of two endpoints with their parameters
 -- We will update the parameters, is just for compiling for now

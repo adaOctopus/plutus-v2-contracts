@@ -11,6 +11,7 @@
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ViewPatterns          #-}
 {-# LANGUAGE ImportQualifiedPost   #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
@@ -52,6 +53,7 @@ import PlutusTx.Prelude (Bool (False, True), BuiltinByteString, Eq, Maybe (Just,
 import Plutus.Contract.Test.Coverage.Analysis
 import PlutusTx.Coverage
 import Prelude qualified as Haskell
+import GHC.Conc (ThreadStatus(ThreadRunning))
 
 data TPParam = TPParam {
 
@@ -67,6 +69,7 @@ PlutusTx.makeLift ''TPParam
 
 -- Data types to be used in our StateMachines Input Actions
 type TokenPolicyHash = BuiltinByteString
+-- ^ this is to identify the Project for Which someone is casting a vote
 type InFavorVote     = BuiltinByteString
 type AgainstVote     = BuiltinByteString
 data VoteChoice      = InFavorVote 
@@ -74,7 +77,12 @@ data VoteChoice      = InFavorVote
      deriving stock (Haskell.Show, Generic)
      deriving anyclass (ToJSON, FromJSON)
 
+instance Eq VoteChoice where
+     InFavorVote == InFavorVote  = True
+     AgainstVote == AgainstVote  = True
+     _ == _                      = False
 
+-- All The Actions the SM accepts
 data SMInputActions = InstantiateSM 
      | GetCreditVotes Address Haskell.Integer
      ----------------- ^ Address to receive credit votes, and Integer is the amount of credits requested to be checked
@@ -84,6 +92,31 @@ data SMInputActions = InstantiateSM
      deriving stock (Haskell.Show, Generic)
      deriving anyclass (ToJSON, FromJSON)
 
+-- The Possible States of the SM
+data TPSMState = 
+     Running
+     -- ^ Only GetCrediitVotes action is allowed here
+     | DistributedVoteCredits MintingPolicyHash Haskell.Integer Address
+     -- ^ Only CastTokenVote action is allowed here
+       ----------------------------------------- ^ this is the amount of ADA locked in Lovelace and the Address of the person who locked the funds
+     | VoteHasBeenCasted MintingPolicyHash TokenPolicyHash VoteChoice Haskell.Integer Address
+       ----------------------------------- ^Project the vote is for, The Vote Choice, The number of Votes, the Address of the Voter
+     | Finished
+     deriving stock (Haskell.Show, Generic)
+     deriving anyclass (ToJSON, FromJSON)
+
+instance Eq TPSMState where
+    {-# INLINABLE (==) #-}
+    Running == Running                                                                        = True 
+    (DistributedVoteCredits mph hintr adr) == (DistributedVoteCredits mph' hintr' adr')       = (mph == mph') && (hintr == hintr') && (adr == adr')
+    (VoteHasBeenCasted mph tph vc hintr adr) == (VoteHasBeenCasted mph' tph' vc' hintr' adr') =  (mph == mph') && (tph == tph') && (vc == vc') && (hintr == hintr') && (adr == adr')
+    Finished == Finished                                                                      = True
+    _ == _                                                                                    = traceIfFalse "states not equal" False
+
+
+-- | The token that represents the right to cast votes
+newtype VotePermiToken = VotePermiToken { unVPToken :: Value }
+    deriving newtype (Eq, Haskell.Show)
 
 -- Schema of the statemachine consisting of two endpoints with their parameters
 -- We will update the parameters, is just for compiling for now

@@ -69,10 +69,22 @@ PlutusTx.makeLift ''TPParam
 
 
 -- Data types to be used in our StateMachines Input Actions
-type TokenPolicyHash = BuiltinByteString
+newtype TokenPolicyHash = TokenPolicyHash BuiltinByteString
+   deriving newtype (Eq, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+   deriving stock (Haskell.Show, Generic)
+   deriving anyclass (ToJSON, FromJSON)
+
 -- ^ this is to identify the Project for Which someone is casting a vote
-type InFavorVote     = BuiltinByteString
-type AgainstVote     = BuiltinByteString
+newtype InFavorVote     = InFavorVotes BuiltinByteString
+  deriving newtype (Eq, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+  deriving stock (Haskell.Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)
+
+newtype AgainstVote     = AgainstVotes BuiltinByteString
+  deriving newtype (Eq, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+  deriving stock (Haskell.Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)
+
 data VoteChoice      = InFavorVote 
      | AgainstVote
      deriving stock (Haskell.Show, Generic)
@@ -91,6 +103,7 @@ data SMInputActions =
      | CastTokenVote TokenPolicyHash VoteChoice Address Haskell.Integer Haskell.Integer
      ----------------- ^ 2 initial arguments are self-explanatory the 1st Integer is the amount of credit votes given 
      ------------------  the 2nd is the Amount for credits received initial
+     deriving anyclass ( PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
      deriving stock (Haskell.Show, Generic)
      deriving anyclass (ToJSON, FromJSON)
 
@@ -104,6 +117,7 @@ data TPSMState =
      | VoteHasBeenCasted MintingPolicyHash TokenPolicyHash VoteChoice Haskell.Integer Address
        ----------------------------------- ^Project the vote is for, The Vote Choice, The number of Votes, the Address of the Voter
      | Finished
+     deriving anyclass ( PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
      deriving stock (Haskell.Show, Generic)
      deriving anyclass (ToJSON, FromJSON)
 
@@ -182,6 +196,8 @@ transitionFunction TPParam{tpParamLockAddress=adr,tpParamLockAmount=adaV} State{
      _                          -> Nothing
 
 
+-- | Boiler Plate code for SMs to get machine, mkValidator, and get the typedValidator
+--------------------------------------------------------------------------------------
 type TokenProposalStateMachine = SM.StateMachine TPSMState SMInputActions
 
 {-# INLINABLE machineF #-}
@@ -189,3 +205,15 @@ machineF :: TPParam -> TokenProposalStateMachine
 machineF tpParam = SM.mkStateMachine Nothing (transitionFunction tpParam) isFinal where
     isFinal Finished = True
     isFinal _        = False
+
+
+{-# INLINABLE mkValidator #-}
+mkValidator :: TPParam -> V2.ValidatorType TokenProposalStateMachine
+mkValidator tpParam = SM.mkValidator (machineF tpParam)
+
+typedValidator :: TPParam -> V2.TypedValidator TokenProposalStateMachine
+typedValidator = V2.mkTypedValidatorParam @TokenProposalStateMachine
+    $$(PlutusTx.compile [|| mkValidator ||])
+    $$(PlutusTx.compile [|| wrap ||])
+    where
+        wrap = Scripts.mkUntypedValidator

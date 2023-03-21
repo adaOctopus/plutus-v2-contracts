@@ -17,6 +17,7 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
 {-# OPTIONS_GHC -g -fplugin-opt PlutusTx.Plugin:coverage-all #-}
+{-# LANGUAGE InstanceSigs #-}
 -- You need to use all of these to get coverage
 
 
@@ -74,23 +75,34 @@ newtype TokenPolicyHash = TokenPolicyHash BuiltinByteString
    deriving stock (Haskell.Show, Generic)
    deriving anyclass (ToJSON, FromJSON)
 
+PlutusTx.makeLift ''TokenPolicyHash
+
 -- ^ this is to identify the Project for Which someone is casting a vote
 newtype InFavorVote     = InFavorVotes BuiltinByteString
   deriving newtype (Eq, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
   deriving stock (Haskell.Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
 
+PlutusTx.makeLift ''InFavorVote
+
+
 newtype AgainstVote     = AgainstVotes BuiltinByteString
   deriving newtype (Eq, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
   deriving stock (Haskell.Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
+
+PlutusTx.makeLift ''AgainstVote
 
 data VoteChoice      = InFavorVote 
      | AgainstVote
      deriving stock (Haskell.Show, Generic)
      deriving anyclass (ToJSON, FromJSON)
 
+PlutusTx.unstableMakeIsData ''VoteChoice
+PlutusTx.makeLift ''VoteChoice
+
 instance Eq VoteChoice where
+     (==) :: VoteChoice -> VoteChoice -> Bool
      InFavorVote == InFavorVote  = True
      AgainstVote == AgainstVote  = True
      _ == _                      = False
@@ -103,9 +115,12 @@ data SMInputActions =
      | CastTokenVote TokenPolicyHash VoteChoice Address Haskell.Integer Haskell.Integer
      ----------------- ^ 2 initial arguments are self-explanatory the 1st Integer is the amount of credit votes given 
      ------------------  the 2nd is the Amount for credits received initial
-     deriving anyclass ( PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
      deriving stock (Haskell.Show, Generic)
      deriving anyclass (ToJSON, FromJSON)
+
+
+PlutusTx.unstableMakeIsData ''SMInputActions
+PlutusTx.makeLift ''SMInputActions     
 
 -- The Possible States of the SM
 data TPSMState = 
@@ -117,9 +132,11 @@ data TPSMState =
      | VoteHasBeenCasted MintingPolicyHash TokenPolicyHash VoteChoice Haskell.Integer Address
        ----------------------------------- ^Project the vote is for, The Vote Choice, The number of Votes, the Address of the Voter
      | Finished
-     deriving anyclass ( PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
      deriving stock (Haskell.Show, Generic)
      deriving anyclass (ToJSON, FromJSON)
+
+PlutusTx.unstableMakeIsData ''TPSMState
+PlutusTx.makeLift ''TPSMState
 
 instance Eq TPSMState where
     {-# INLINABLE (==) #-}
@@ -134,6 +151,9 @@ instance Eq TPSMState where
 newtype VotePermiToken = VotePermiToken { unVPToken :: Value }
     deriving newtype (Eq, Haskell.Show)
 
+PlutusTx.unstableMakeIsData ''VotePermiToken
+PlutusTx.makeLift ''VotePermiToken
+
 permitToken :: MintingPolicyHash -> TokenName -> Value
 permitToken mps tn = Value.singleton (Value.mpsSymbol mps) tn 1
 
@@ -141,6 +161,9 @@ permitToken mps tn = Value.singleton (Value.mpsSymbol mps) tn 1
 -- | The token that represents the VOTE CREDITS
 newtype VoteCreditToken = VoteCreditToken { unVCToken :: Value }
     deriving newtype (Eq, Haskell.Show)
+
+PlutusTx.unstableMakeIsData ''VoteCreditToken
+PlutusTx.makeLift ''VoteCreditToken
 
 creditToken :: MintingPolicyHash -> TokenName -> Value
 creditToken mps tn = Value.singleton (Value.mpsSymbol mps) tn 1
@@ -217,3 +240,13 @@ typedValidator = V2.mkTypedValidatorParam @TokenProposalStateMachine
     $$(PlutusTx.compile [|| wrap ||])
     where
         wrap = Scripts.mkUntypedValidator
+
+mintingPolicy :: TPParam -> Scripts.MintingPolicy
+mintingPolicy gp = Scripts.forwardingMintingPolicy $ typedValidator gp
+
+client :: TPParam -> SM.StateMachineClient TPSMState SMInputActions
+client tpp = SM.mkStateMachineClient $ SM.StateMachineInstance (machineF tpp) $ typedValidator tpp
+
+-- | THis is for test coverage (i do not understand it yet, but included it anyways because, why not make things even more complicated? :P)
+covIdx :: CoverageIndex
+covIdx = $refinedCoverageIndex $$(PlutusTx.compile [|| \a b c d -> check (mkValidator a b c d) ||])

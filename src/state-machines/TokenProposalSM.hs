@@ -124,8 +124,8 @@ PlutusTx.makeLift ''SMInputActions
 
 -- The Possible States of the SM
 data TPSMState = 
-     RunSM MintingPolicyHash TokenName
-     -- ^ Only GetCrediitVotes action is allowed here
+     RunSM MintingPolicyHash TokenName MintingPolicyHash TokenName
+     -- ^ Only GetCrediitVotes action is allowed here (we pass hash and name of SMToken, and hash and name of The votecredit tokens)
      | LockedFundsGotCredits MintingPolicyHash Haskell.Integer Address
      -- ^ Only CastTokenVote action is allowed here
        ----------------------------------------- ^ this is the amount of ADA locked in Lovelace and the Address of the person who locked the funds
@@ -140,7 +140,7 @@ PlutusTx.makeLift ''TPSMState
 
 instance Eq TPSMState where
     {-# INLINABLE (==) #-}
-    (RunSM mph tn) == (RunSM mph' tn')                                                        = (mph == mph') && (tn == tn') 
+    (RunSM mph tn mph1 tn1) == (RunSM mph' tn' mph1' tn1')                                    = (mph == mph') && (mph1 == mph1') && (tn1 == tn1') && (tn == tn') 
     (LockedFundsGotCredits mph hintr adr) == (LockedFundsGotCredits mph' hintr' adr')         = (mph == mph') && (hintr == hintr') && (adr == adr')
     (VoteHasBeenCasted mph tph vc hintr adr) == (VoteHasBeenCasted mph' tph' vc' hintr' adr') =  (mph == mph') && (tph == tph') && (vc == vc') && (hintr == hintr') && (adr == adr')
     Finished == Finished                                                                      = True
@@ -207,8 +207,10 @@ transitionFunction
     -> SMInputActions
     -> Maybe (TxConstraints Void Void, State TPSMState)
 transitionFunction TPParam{tpParamLockAddress=adr,tpParamLockAmount=adaV} State{stateData=oldStateData, stateValue=oldStateValue} input = case (oldStateData, input) of 
-     (RunSM mph tn, MintSMToken) -> 
-          let constraints = Constraints.mustMintCurrency mph tn 1 in
+     (RunSM mph tn mph1 tn1, MintSMToken) -> 
+          let constraints = Constraints.mustMintCurrency mph tn 1 
+                         <> Constraints.mustMintCurrency mph1 tn1 amountToMint
+                         <> Constraints.mustPayToAddress adr (Ada.lovelaceValueOf amountToMint) in
                Just (
                     constraints,
                     State {
@@ -216,6 +218,8 @@ transitionFunction TPParam{tpParamLockAddress=adr,tpParamLockAmount=adaV} State{
                          stateValue = Ada.lovelaceValueOf adaV
                     }
                )
+          where 
+               amountToMint = quadraticVoteRatio . Haskell.fromIntegral $ adaV
      _                          -> Nothing
 
 
@@ -250,3 +254,7 @@ client tpp = SM.mkStateMachineClient $ SM.StateMachineInstance (machineF tpp) $ 
 -- | THis is for test coverage (i do not understand it yet, but included it anyways because, why not make things even more complicated? :P)
 covIdx :: CoverageIndex
 covIdx = $refinedCoverageIndex $$(PlutusTx.compile [|| \a b c d -> check (mkValidator a b c d) ||])
+
+
+-- | This is the actual functionality of the points
+-- | Starting with locking funds in exchange for vote credits

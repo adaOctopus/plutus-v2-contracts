@@ -165,8 +165,8 @@ newtype VoteCreditToken = VoteCreditToken { unVCToken :: Value }
 PlutusTx.unstableMakeIsData ''VoteCreditToken
 PlutusTx.makeLift ''VoteCreditToken
 
-creditToken :: MintingPolicyHash -> TokenName -> Value
-creditToken mps tn = Value.singleton (Value.mpsSymbol mps) tn 1
+creditToken :: MintingPolicyHash -> TokenName -> Haskell.Integer -> Value
+creditToken mps = Value.singleton (Value.mpsSymbol mps)
 
 
 -- | Dividing lovelace with 1000000 to find exact ada
@@ -210,7 +210,7 @@ transitionFunction TPParam{tpParamLockAddress=adr,tpParamLockAmount=adaV} State{
      (RunSM mph tn mph1 tn1, MintSMToken) -> 
           let constraints = Constraints.mustMintCurrency mph tn 1 
                          <> Constraints.mustMintCurrency mph1 tn1 amountToMint
-                         <> Constraints.mustPayToAddress adr (Ada.lovelaceValueOf amountToMint) in
+                         <> Constraints.mustPayToAddress adr (creditToken mph1 tn1 amountToMint) in
                Just (
                     constraints,
                     State {
@@ -220,6 +220,7 @@ transitionFunction TPParam{tpParamLockAddress=adr,tpParamLockAmount=adaV} State{
                )
           where 
                amountToMint = quadraticVoteRatio . Haskell.fromIntegral $ adaV
+     -- | Think of the next step how it should be, and all the possible states.
      _                          -> Nothing
 
 

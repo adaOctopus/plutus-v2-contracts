@@ -259,3 +259,19 @@ covIdx = $refinedCoverageIndex $$(PlutusTx.compile [|| \a b c d -> check (mkVali
 
 -- | This is the actual functionality of the points
 -- | Starting with locking funds in exchange for vote credits
+
+-- | Arguments for the @"lock"@ endpoint
+data TPLockArgs =
+    TPLockArgs
+        { lockArgsTPParam :: TPParam
+        -- ^ The parameters for parameterizing the validator.
+        , lockArgsValue     :: Value
+        -- ^ Value that is locked by the contract
+        } deriving stock (Haskell.Show, Generic)
+          deriving anyclass (ToJSON, FromJSON)
+
+lockF :: Promise () TPPStateMachineSchema TPError ()
+lockF = endpoint @"lock" $ \TPLockArgs{lockArgsTPParam, lockArgsValue} -> do
+    let sym = Scripts.forwardingMintingPolicyHash $ typedValidator lockArgsTPParam
+    _ <- SM.runInitialise (client lockArgsTPParam) (Initialised sym "guess" secret) lockArgsValue
+    void $ SM.runStep (client lockArgsTPParam) MintSMToken

@@ -27,7 +27,7 @@
 
 module TokenProposalSM where
 
-import Control.Lens (makeClassyPrisms)
+import Control.Lens (makeClassyPrisms, nearly)
 import Control.Monad (void)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString.Char8 qualified as C
@@ -49,9 +49,11 @@ import Plutus.Script.Utils.Value (TokenName, Value)
 import Plutus.Script.Utils.Value qualified as Value
 import PlutusTx qualified
 import PlutusTx.Prelude (Bool (False, True), BuiltinByteString, Eq, Maybe (Just, Nothing), check, sha2_256, toBuiltin,
-                         traceIfFalse, ($), (&&), (-), (.), (<$>), (<>), (==), (>>))
-
+                         traceIfFalse, ($), (&&), (-), (.), (<$>), (<>), (==), (>>), divide)
+import PlutusTx.Sqrt (Sqrt (..) , rsqrt)
+import qualified PlutusTx.Ratio as RatioTx
 import Plutus.Contract.Test.Coverage.Analysis
+    ( refinedCoverageIndex )
 import PlutusTx.Coverage
 import Prelude qualified as Haskell
 import GHC.Conc (ThreadStatus(ThreadRunning))
@@ -176,11 +178,31 @@ creditToken mps = Value.singleton (Value.mpsSymbol mps)
 quadraticVoteRatio :: (Haskell.Floating a, Haskell.RealFrac a, Haskell.Integral b) => a -> b
 quadraticVoteRatio adaFunds = Haskell.round . Haskell.sqrt $ (adaFunds Haskell./ 1000000)
 
+-- Helper function for calculating the Quadratic final number
+-- Evaluation occurs using PlutusTx.Sqrt
+evalQuadra :: Sqrt -> Haskell.Integer
+evalQuadra Imaginary = 1
+evalQuadra (Exactly n) = Haskell.toInteger n 
+evalQuadra (Approximately n) = Haskell.toInteger n
+
+
 -- Schema of the statemachine consisting of two endpoints with their parameters
 -- We will update the parameters, is just for compiling for now
+
+-- | Arguments for the @"lock"@ endpoint
+data TPLockArgs =
+    TPLockArgs
+        { lockArgsTPParam :: TPParam
+        -- ^ The parameters for parameterizing the validator.
+        , lockArgsValue     :: Value
+        -- ^ Value that is locked by the contract
+        } deriving stock (Haskell.Show, Generic)
+          deriving anyclass (ToJSON, FromJSON)
+
+
 type TPPStateMachineSchema =
-        Endpoint "lock" TPParam
-        .\/ Endpoint "cast-vote" TPParam
+        Endpoint "lock" TPLockArgs
+        -- .\/ Endpoint "cast-vote" TPParam
 
 -- | Error tracking data types
 data TPError =
@@ -209,7 +231,7 @@ transitionFunction
 transitionFunction TPParam{tpParamLockAddress=adr,tpParamLockAmount=adaV} State{stateData=oldStateData, stateValue=oldStateValue} input = case (oldStateData, input) of 
      (RunSM mph tn mph1 tn1, MintSMToken) -> 
           let constraints = Constraints.mustMintCurrency mph tn 1 
-                         <> Constraints.mustMintCurrency mph1 tn1 amountToMint
+                         <> Constraints.mustMintCurrency mph1 tn1 amountToMint 
                          <> Constraints.mustPayToAddress adr (creditToken mph1 tn1 amountToMint) in
                Just (
                     constraints,
@@ -219,7 +241,8 @@ transitionFunction TPParam{tpParamLockAddress=adr,tpParamLockAmount=adaV} State{
                     }
                )
           where 
-               amountToMint = quadraticVoteRatio . Haskell.fromIntegral $ adaV
+               amountToMint =   evalQuadra . rsqrt . RatioTx.fromInteger $ (adaV `divide` 1000000)
+               -- Haskell.toInteger . Haskell.round . Haskell.sqrt . Haskell.fromIntegral
      -- | Think of the next step how it should be, and all the possible states.
      _                          -> Nothing
 
@@ -260,18 +283,10 @@ covIdx = $refinedCoverageIndex $$(PlutusTx.compile [|| \a b c d -> check (mkVali
 -- | This is the actual functionality of the points
 -- | Starting with locking funds in exchange for vote credits
 
--- | Arguments for the @"lock"@ endpoint
-data TPLockArgs =
-    TPLockArgs
-        { lockArgsTPParam :: TPParam
-        -- ^ The parameters for parameterizing the validator.
-        , lockArgsValue     :: Value
-        -- ^ Value that is locked by the contract
-        } deriving stock (Haskell.Show, Generic)
-          deriving anyclass (ToJSON, FromJSON)
+
 
 lockF :: Promise () TPPStateMachineSchema TPError ()
 lockF = endpoint @"lock" $ \TPLockArgs{lockArgsTPParam, lockArgsValue} -> do
     let sym = Scripts.forwardingMintingPolicyHash $ typedValidator lockArgsTPParam
-    _ <- SM.runInitialise (client lockArgsTPParam) (Initialised sym "guess" secret) lockArgsValue
+    _ <- SM.runInitialise (client lockArgsTPParam) (RunSM sym "smtoken" sym "votingtokens") lockArgsValue
     void $ SM.runStep (client lockArgsTPParam) MintSMToken

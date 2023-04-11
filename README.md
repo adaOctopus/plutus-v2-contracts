@@ -3,7 +3,7 @@
 
 This repo is to be used as reference with smart contract examples and their testing suites.
 
-`How to build`
+`How to build the repo`
 
 1. Clone this repo locally
 2. Go to your `plutus-apps` directory, make sure you are in main and checkout this tag: 46b7181457154cd39dcaf53ff0ea1d9ce4bc4508

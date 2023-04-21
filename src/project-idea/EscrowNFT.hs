@@ -28,6 +28,7 @@ import Control.Lens (makeClassyPrisms)
 import Control.Monad (void)
 import Control.Monad.Error.Lens (throwing)
 import Data.Aeson (FromJSON, ToJSON)
+import Data.Maybe qualified as MayBB
 import GHC.Generics (Generic)
 
 import Ledger (POSIXTime, PaymentPubKeyHash (unPaymentPubKeyHash), TxId, getCardanoTxId)
@@ -83,9 +84,6 @@ validatorFunc ed (Unlock ig tn) sc = True
     info :: PlutusV2.TxInfo
     info = PlutusV2.scriptContextTxInfo sc
 
-    getTxInputs :: [PlutusV2.TxInInfo]
-    getTxInputs = PlutusV2.txInfoInputs info
-
     -- | 1. First check if user has the NFT that matches with NFT in the datum
     -- | 2. Second check if the user has the correct password.
     
@@ -96,3 +94,14 @@ validatorFunc ed (Unlock ig tn) sc = True
 
     -- Now we need to check the datum attached to a UTXO of this script, that has the NFT that the user is passing inside the redeemer.
     -- THen we can do the actual check.
+
+    getTxInputs :: [PlutusV2.TxInInfo]
+    getTxInputs = PlutusV2.txInfoInputs info
+
+    getOutDatum :: PlutusV2.OutputDatum
+    getOutDatum = PlutusV2.txOutDatum . PlutusV2.txInInfoResolved $ (getTxInputs !! 0)
+
+    getActualDatum :: Maybe TokenName
+    getActualDatum = case getOutDatum of
+                       PlutusV2.OutputDatum dt -> Just (lockNFT . MayBB.fromJust . PlutusV2.fromBuiltinData . PlutusV2.getDatum $ dt)
+                       _              -> Nothing

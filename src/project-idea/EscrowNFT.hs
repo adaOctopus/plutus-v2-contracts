@@ -39,6 +39,7 @@ import Ledger.Tx.Constraints.ValidityInterval qualified as Interval
 import Ledger.Typed.Scripts (ScriptContextV2)
 import Ledger.Typed.Scripts qualified as Scripts
 import Plutus.Script.Utils.V2.Typed.Scripts qualified as V2
+import qualified Plutus.Script.Utils.V2.Typed.Scripts.Validators as PSUV.V2
 import Plutus.Script.Utils.Value (Value, geq)
 import Plutus.V2.Ledger.Api (txInfoValidRange, Map, DatumHash, Datum)
 import qualified Plutus.V2.Ledger.Api      as PlutusV2
@@ -46,6 +47,7 @@ import Plutus.V2.Ledger.Contexts (txSignedBy, valuePaidTo)
 import Plutus.V2.Ledger.Contexts qualified as V2
 import Plutus.Script.Utils.Value (TokenName, Value)
 import Plutus.Script.Utils.Value qualified as Value
+import Plutus.Script.Utils.Typed qualified as PTyped
 import Plutus.Contract
 import PlutusTx qualified
 import PlutusTx.AssocMap qualified as PTXMap
@@ -77,10 +79,12 @@ PlutusTx.makeIsDataIndexed ''UserAction
    ( 'Unlock, 0 )
  ]
 
+
+{-# INLINABLE validatorFunc #-}
 validatorFunc :: EscrowDatum -> UserAction-> V2.ScriptContext -> Bool
-validatorFunc ed (Unlock ig tn) sc = traceIfFalse "Mismatch of NFToken Name" checkTokenNameMatch &&
-                                     traceIfFalse "Mismatch of Key Password" checkKeyMatch &&
-                                     traceIfFalse "User is not burning the NFT" checkBurningNFT
+validatorFunc ed (Unlock ig tn) sc = traceIfFalse "Mismatch of Key Password" checkKeyMatch &&
+                                     traceIfFalse "User is not burning the NFT" checkBurningNFT &&
+                                     traceIfFalse "Mismatch of NFToken Name" checkTokenNameMatch
 
   where
     info :: PlutusV2.TxInfo
@@ -105,7 +109,9 @@ validatorFunc ed (Unlock ig tn) sc = traceIfFalse "Mismatch of NFToken Name" che
 
     getActualDatum :: Maybe TokenName
     getActualDatum = case getOutDatum of
-                       PlutusV2.OutputDatum dt -> Just (lockNFT . MayBB.fromJust . PlutusV2.fromBuiltinData . PlutusV2.getDatum $ dt)
+                       PlutusV2.OutputDatum dt -> case (PlutusV2.fromBuiltinData . PlutusV2.getDatum $ dt) of
+                                                    Just dt2 -> Just (lockNFT dt2)
+                                                    _        -> Nothing
                        _              -> Nothing
 
     checkTokenNameMatch :: Bool
@@ -122,3 +128,14 @@ validatorFunc ed (Unlock ig tn) sc = traceIfFalse "Mismatch of NFToken Name" che
       where
         wholeMap = PTXMap.elems . PlutusV2.getValue . PlutusV2.txInfoMint $ info
         oneItemOfListOfMap = wholeMap !! 0
+
+
+-- | Boilerplate to compile to Plutus Core
+{-# INLINABLE typedValidator #-}
+typedValidator :: PlutusV2.Validator 
+typedValidator = PlutusV2.mkValidatorScript $$(PlutusTx.compile [|| wrap ||])
+   where
+      wrap = PTyped.mkUntypedValidator validatorFunc
+
+escrowNftScript :: PlutusV2.Script
+escrowNftScript = PlutusV2.unValidatorScript typedValidator

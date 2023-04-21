@@ -78,7 +78,9 @@ PlutusTx.makeIsDataIndexed ''UserAction
  ]
 
 validatorFunc :: EscrowDatum -> UserAction-> V2.ScriptContext -> Bool
-validatorFunc ed (Unlock ig tn) sc = True
+validatorFunc ed (Unlock ig tn) sc = traceIfFalse "Mismatch of NFToken Name" checkTokenNameMatch &&
+                                     traceIfFalse "Mismatch of Key Password" checkKeyMatch &&
+                                     traceIfFalse "User is not burning the NFT" checkBurningNFT
 
   where
     info :: PlutusV2.TxInfo
@@ -105,3 +107,18 @@ validatorFunc ed (Unlock ig tn) sc = True
     getActualDatum = case getOutDatum of
                        PlutusV2.OutputDatum dt -> Just (lockNFT . MayBB.fromJust . PlutusV2.fromBuiltinData . PlutusV2.getDatum $ dt)
                        _              -> Nothing
+
+    checkTokenNameMatch :: Bool
+    checkTokenNameMatch = case getActualDatum of
+                            Just tn2 -> tn == tn2
+                            _        -> False
+
+    checkKeyMatch :: Bool
+    checkKeyMatch = ig == (lockKey ed)
+
+    -- | check if it is burning the NFT properly when trying to redeem the locked funds
+    checkBurningNFT :: Bool
+    checkBurningNFT = ((PTXMap.elems $ oneItemOfListOfMap) !! 0 ) < 0
+      where
+        wholeMap = PTXMap.elems . PlutusV2.getValue . PlutusV2.txInfoMint $ info
+        oneItemOfListOfMap = wholeMap !! 0

@@ -83,9 +83,16 @@ validatorFunc ed (Unlock ig tn) sc = True
     info :: PlutusV2.TxInfo
     info = PlutusV2.scriptContextTxInfo sc
 
+    getTxInputs :: [PlutusV2.TxInInfo]
+    getTxInputs = PlutusV2.txInfoInputs info
+
     -- | 1. First check if user has the NFT that matches with NFT in the datum
     -- | 2. Second check if the user has the correct password.
     
     -- txInfoData returns a (Map DatumHash Datum) and elems returns list of all the datums.
+    -- This is the datum attached to the TRANSACTION. Be careful, not from a UTXO.
     attachedData :: [Datum]
     attachedData = PTXMap.elems . PlutusV2.txInfoData $ info
+
+    -- Now we need to check the datum attached to a UTXO of this script, that has the NFT that the user is passing inside the redeemer.
+    -- THen we can do the actual check.

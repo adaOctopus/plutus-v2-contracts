@@ -30,6 +30,7 @@ library
                      , text
                      , serialise
                      , base16-bytestring
+                     , plutus-simple-model
                      , cardano-ledger-core
                      , cardano-crypto-class
   default-language:    Haskell2010

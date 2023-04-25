@@ -53,6 +53,11 @@ import PlutusTx qualified
 import PlutusTx.AssocMap qualified as PTXMap
 import PlutusTx.Prelude hiding (Applicative (..), Semigroup (..), check, foldMap)
 
+-- | Plutus Simple Model imports
+import           Plutus.Model         (Ada (Lovelace), Run, ada, adaValue,
+                                       defaultBabbage, mustFail, newUser,
+                                       noErrors, sendValue, testNoErrors,
+                                       valueAt)
 import Prelude (Semigroup (..), foldMap)
 import Prelude qualified as Haskell
 

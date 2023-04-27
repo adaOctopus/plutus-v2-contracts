@@ -3,6 +3,12 @@
 
 This repo is to be used as reference with smart contract examples and their testing suites.
 
+`Use cases of this repo`
+
+- Contract for making proposals using credit tokens -> State Machine .
+- Escrow NFT contract. Lock funds and mint NFT for proof. Unlock funds by burning NFT.
+- Property Based Testing of EscrowNFT contract with Plutus Simple Model.
+
 `How to build the repo`
 
 1. Clone this repo locally

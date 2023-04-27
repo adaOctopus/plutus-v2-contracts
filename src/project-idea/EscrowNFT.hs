@@ -63,7 +63,7 @@ import Prelude qualified as Haskell
 
 
 data EscrowDatum = EscrowDatum {
-    lockOwner  :: PaymentPubKeyHash,
+    lockOwner  :: PlutusV2.PubKeyHash,
     lockAmount :: Haskell.Integer,
     lockNFT    :: TokenName,
     lockKey    :: Haskell.Integer

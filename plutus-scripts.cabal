@@ -9,8 +9,9 @@ Copyright:          © 2022 James Browning
 -- License-files:      LICENSE
 
 library
-  hs-source-dirs:      src/project-idea
-  exposed-modules:     EscrowNFT
+  hs-source-dirs:      src/project-idea, src/project-idea/tests
+  exposed-modules:     EscrowNFT,
+                       PTEscrowNFT
   build-depends:       aeson
                      , base ^>=4.14.1.0
                      , bytestring
@@ -31,6 +32,9 @@ library
                      , serialise
                      , base16-bytestring
                      , plutus-simple-model
+                     , QuickCheck
+                     , tasty
+                     , tasty-quickcheck
                      , cardano-ledger-core
                      , cardano-crypto-class
   default-language:    Haskell2010

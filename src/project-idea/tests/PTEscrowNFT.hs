@@ -14,8 +14,8 @@ import           Plutus.Model            (Ada (Lovelace), DatumMode (HashDatum, 
                                           TypedValidator (TypedValidator),
                                           UserSpend, FakeCoin (..), fakeCoin, fakeValue, ada, adaValue,
                                           defaultBabbage, initMock, mustFail,
-                                          newUser, payToKey, payToScript,
-                                          runMock, spend, spendScript, submitTx,
+                                          newUser, payToKey, payToScript, sendValue, 
+                                          runMock, spend, spendScript, submitTx, getMainUser,
                                           toV2, userSpend, utxoAt, valueAt, waitUntil, currentTimeRad, validateIn)
 import           Plutus.V2.Ledger.Api    (PubKeyHash, TokenName, TxOut (txOutValue), singleton,
                                           TxOutRef, Value, POSIXTime (POSIXTime, getPOSIXTime))
@@ -44,6 +44,11 @@ curSym = currencySymbol . toBString $ "4C6F636B446146756E64"
 instance Testable a => Testable (Run a) where
   property rp = let (a,_) = runMock rp $ initMock defaultBabbage ((adaValue 100_000_000) <> singleton curSym ( tokenName . toBString $ "LockDaFund") 1) in property a
 
+
+txTransferNFT :: PubKeyHash -> Run ()
+txTransferNFT pkh = do
+  adminPKH <- getMainUser
+  sendValue adminPKH (singleton curSym ( tokenName . toBString $ "LockDaFund") 1) pkh
 
 -- | Our on chain validator checks 3 things
 -- 1. A matching password
@@ -84,6 +89,7 @@ nftTokenValue = fakeValue nftToken 1
 -- Create transaction that spends "usp" to lock "vl" in "escrowScript"
 -- | "usp" is basically the users utxos that will be used as inputs in the transaction to be consumed for locking funds to script.
 -- | For a new utxo to come, another has to die.
+
 lockFunds2Script :: PubKeyHash -> Integer -> TokenName -> Integer -> UserSpend -> Value -> Tx
 lockFunds2Script ph amt tn pwd usp vl =
   mconcat

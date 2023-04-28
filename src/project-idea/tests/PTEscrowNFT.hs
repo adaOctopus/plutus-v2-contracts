@@ -17,13 +17,16 @@ import           Plutus.Model            (Ada (Lovelace), DatumMode (HashDatum, 
                                           newUser, payToKey, payToScript,
                                           runMock, spend, spendScript, submitTx,
                                           toV2, userSpend, utxoAt, valueAt, waitUntil, currentTimeRad, validateIn)
-import           Plutus.V2.Ledger.Api    (PubKeyHash, TokenName, TxOut (txOutValue),
+import           Plutus.V2.Ledger.Api    (PubKeyHash, TokenName, TxOut (txOutValue), singleton,
                                           TxOutRef, Value, POSIXTime (POSIXTime, getPOSIXTime))
 import           PlutusTx.Builtins       (Integer, BuiltinByteString, encodeUtf8, mkI)
 import           PlutusTx.Prelude        (Bool (..), Eq ((==)),
                                           return, ($), (&&), (.))
-import           Prelude                 (IO, String, Ord ((<), (>)),
+import           Prelude                 (IO, String, Ord ((<), (>)), (<>),
                                           mconcat)
+import Plutus.Script.Utils.Value (TokenName, Value, currencySymbol, tokenName)
+import qualified Data.ByteString.Char8       as BS8
+import qualified Data.ByteString.Lazy        as LBS
 import           Test.QuickCheck         (Property, Testable (property),
                                           collect, (==>), Arbitrary (arbitrary), choose)
 import           Test.QuickCheck.Monadic (assert, monadic, run)
@@ -34,9 +37,12 @@ import           Test.Tasty.QuickCheck   as QC (testProperty)
 -- | Helper functions for using Quickcheck
 -- | Testable and Arbitrary instances to generate random cases for the validators parameters 
 
+
+-- | fixed currencySYmbol 32 bits
+curSym = currencySymbol . toBString $ "4C6F636B446146756E64" 
 -- | 100_000_000 goes to the administrator of the mockup blockchain, which then sends to the demo users setup later in the code.
 instance Testable a => Testable (Run a) where
-  property rp = let (a,_) = runMock rp $ initMock defaultBabbage (adaValue 100_000_000) in property a
+  property rp = let (a,_) = runMock rp $ initMock defaultBabbage ((adaValue 100_000_000) <> singleton curSym ( tokenName . toBString $ "LockDaFund") 1) in property a
 
 
 -- | Our on chain validator checks 3 things
@@ -59,6 +65,9 @@ twoDemoUsers = replicateM 2 $ newUser $ ada (Lovelace 10000000)
 toBBString :: String -> PlutusTx.Builtins.BuiltinByteString
 toBBString = PlutusTx.Builtins.encodeUtf8 . fromString
 
+toBString :: String -> BS8.ByteString
+toBString = fromString
+
 
 nftToken = FakeCoin {
     fakeCoin'tag = toBBString "LockDaFund"
@@ -68,7 +77,7 @@ nftTokenValue :: Value
 nftTokenValue = fakeValue nftToken 1
 
 
-
+-- "LockDaFund" hexadecimal -> 4C6F636B446146756E64
 ------------------------------------------------------------------------------------
 -------------------------- MONOIDAL TX For SUbmission ------------------------------
 
@@ -81,3 +90,6 @@ lockFunds2Script ph amt tn pwd usp vl =
     [ userSpend usp
     , payToScript valScript (InlineDatum (OnChain.EscrowDatum ph amt tn pwd)) vl
     ]
+
+-- The core function where everything happens is the testValues. It is where we define the users,
+-- who spends what etc. Figure out a minting function for the fakeNFT.

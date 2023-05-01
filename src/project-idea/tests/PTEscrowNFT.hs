@@ -74,6 +74,10 @@ toBBString = PlutusTx.Builtins.encodeUtf8 . fromString
 toBString :: String -> BS8.ByteString
 toBString = fromString
 
+-- Time to wait before consumming UTxO from script
+waitBeforeConsumingTx :: POSIXTime
+waitBeforeConsumingTx = 1000
+
 
 nftToken = FakeCoin {
     fakeCoin'tag = toBBString "LockDaFund"
@@ -110,3 +114,11 @@ unlockFundsFromScript ph amt tn pwd ref val =
     , payToKey ph val
     ]
     -- txTransferNFT after this back to the admin user
+
+-- | Core function to test if thinks work properly.
+testScenarios :: Bool -> PubKeyHash -> Integer -> TokenName -> Integer -> Run Bool
+testScenarios yesOrNo ph amt tn pwd = do
+  [u1, u2] <- twoDemoUsers -- this [u1,u2] is a list of pubKeyHashes
+  let adaValueToLock = adaValue 10
+  sp1 <- spend u1 adaValueToLock
+  submitTx u1 $ lockFunds2Script ph amt tn pwd sp1 val      -- User 1 submits "lockFunds2Script" transaction

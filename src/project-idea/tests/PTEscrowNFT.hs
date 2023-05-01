@@ -14,7 +14,7 @@ import           Plutus.Model            (Ada (Lovelace), DatumMode (HashDatum, 
                                           TypedValidator (TypedValidator),
                                           UserSpend, FakeCoin (..), fakeCoin, fakeValue, ada, adaValue,
                                           defaultBabbage, initMock, mustFail,
-                                          newUser, payToKey, payToScript, sendValue, 
+                                          newUser, payToKey, payToScript, sendValue,
                                           runMock, spend, spendScript, submitTx, getMainUser,
                                           toV2, userSpend, utxoAt, valueAt, waitUntil, currentTimeRad, validateIn)
 import           Plutus.V2.Ledger.Api    (PubKeyHash, TokenName, TxOut (txOutValue), singleton,
@@ -43,7 +43,7 @@ import Plutus.Contract.Test.ContractModel.Interface (transfer)
 curSym = currencySymbol . toBString $ "4C6F636B446146756E64" 
 -- | 100_000_000 goes to the administrator of the mockup blockchain, which then sends to the demo users setup later in the code.
 instance Testable a => Testable (Run a) where
-  property rp = let (a,_) = runMock rp $ initMock defaultBabbage ((adaValue 100_000_000) <> singleton curSym ( tokenName . toBString $ "LockDaFund") 1) in property a
+  property rp = let (a,_) = runMock rp $ initMock defaultBabbage (adaValue 100_000_000 <> singleton curSym ( tokenName . toBString $ "LockDaFund") 1) in property a
 
 
 txTransferNFT :: PubKeyHash -> Run ()
@@ -61,12 +61,12 @@ txTransferNFT pkh = do
 -- | Validator's script
 -- | Versioning the validator to v2
 
-valScript :: TypedValidator datum redeemer
-valScript = TypedValidator $ toV2 OnChain.typedValidator
+plutusScript :: TypedValidator datum redeemer
+plutusScript = TypedValidator $ toV2 OnChain.typedValidator
 
 -- Set many users at once
 twoDemoUsers :: Run [PubKeyHash]
-twoDemoUsers = replicateM 2 $ newUser $ ada (Lovelace 10000000)
+twoDemoUsers = replicateM 2 $ newUser $ ada (Lovelace 1000)
 
 toBBString :: String -> PlutusTx.Builtins.BuiltinByteString
 toBBString = PlutusTx.Builtins.encodeUtf8 . fromString
@@ -99,7 +99,7 @@ lockFunds2Script :: PubKeyHash -> Integer -> TokenName -> Integer -> UserSpend -
 lockFunds2Script ph amt tn pwd usp vl =
   mconcat
     [ userSpend usp
-    , payToScript valScript (InlineDatum (OnChain.EscrowDatum ph amt tn pwd)) vl
+    , payToScript plutusScript (InlineDatum (OnChain.EscrowDatum ph amt tn pwd)) vl
     ]
     -- txTransferNFT after this to the user locking funds
 
@@ -110,15 +110,29 @@ lockFunds2Script ph amt tn pwd usp vl =
 unlockFundsFromScript :: PubKeyHash -> Integer -> TokenName -> Integer -> TxOutRef -> Value -> Tx
 unlockFundsFromScript ph amt tn pwd ref val =
   mconcat
-    [ spendScript valScript ref (mkI pwd) (OnChain.EscrowDatum ph amt tn pwd)
+    [ spendScript plutusScript ref (OnChain.Unlock pwd tn) (OnChain.EscrowDatum ph amt tn pwd)
     , payToKey ph val
     ]
     -- txTransferNFT after this back to the admin user
 
 -- | Core function to test if thinks work properly.
 testScenarios :: Bool -> PubKeyHash -> Integer -> TokenName -> Integer -> Run Bool
-testScenarios yesOrNo ph amt tn pwd = do
+testScenarios shouldSpendScript ph amt tn pwd = do
   [u1, u2] <- twoDemoUsers -- this [u1,u2] is a list of pubKeyHashes
   let adaValueToLock = adaValue 10
+
   sp1 <- spend u1 adaValueToLock
-  submitTx u1 $ lockFunds2Script ph amt tn pwd sp1 val      -- User 1 submits "lockFunds2Script" transaction
+  submitTx u1 $ lockFunds2Script ph amt tn pwd sp1 adaValueToLock -- User 1 submits "lockFunds2Script" transaction
+
+  -- WAIT FOR A BIT
+  waitUntil waitBeforeConsumingTx
+  utxos <- utxoAt plutusScript -- Query blockchain to get all UTxOs at script
+
+  let [(oRef, oOut)] = utxos  -- We know there is only one utxo now, the one we just created.
+      tx = unlockFundsFromScript u2 amt tn pwd oRef (txOutValue oOut)
+      v2Expected = if shouldSpendScript then adaValue 1010 else adaValue 1000
+      
+  if shouldSpendScript then submitTx u2 tx else mustFail . submitTx u2 $ tx  -- User 2 submits "consumingTx" transaction
+  -- CHECK THAT FINAL BALANCES MATCH EXPECTED BALANCES
+  [v1, v2] <- mapM valueAt [u1, u2]               -- Get final balances
+  return $ v1 == adaValue 900 && v2 == v2Expected -- Check if final balances match expected balances

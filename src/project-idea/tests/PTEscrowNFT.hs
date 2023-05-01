@@ -27,6 +27,7 @@ import           Prelude                 (IO, String, Ord ((<), (>)), (<>),
 import Plutus.Script.Utils.Value (TokenName, Value, currencySymbol, tokenName)
 import qualified Data.ByteString.Char8       as BS8
 import qualified Data.ByteString.Lazy        as LBS
+import PlutusTx.Eq                       ((/=))
 import           Test.QuickCheck         (Property, Testable (property),
                                           collect, (==>), Arbitrary (arbitrary), choose)
 import           Test.QuickCheck.Monadic (assert, monadic, run)
@@ -50,6 +51,11 @@ txTransferNFT :: PubKeyHash -> Run ()
 txTransferNFT pkh = do
   adminPKH <- getMainUser
   sendValue adminPKH (singleton curSym ( tokenName . toBString $ "LockDaFund") 1) pkh
+
+txBurnNFT :: PubKeyHash -> Run ()
+txBurnNFT pkh = do
+  adminPKH <- getMainUser
+  sendValue pkh (singleton curSym ( tokenName . toBString $ "LockDaFund") 1) adminPKH
 
 -- | Our on chain validator checks 3 things
 -- 1. A matching password
@@ -75,8 +81,8 @@ toBString :: String -> BS8.ByteString
 toBString = fromString
 
 -- Time to wait before consumming UTxO from script
-waitBeforeConsumingTx :: POSIXTime
-waitBeforeConsumingTx = 1000
+waitForABit :: POSIXTime
+waitForABit = 50
 
 
 nftToken = FakeCoin {
@@ -107,17 +113,43 @@ lockFunds2Script ph amt tn pwd usp vl =
 -- who spends what etc. Figure out a minting function for the fakeNFT.
 
 -- Create transaction that spends "giftRef" to unlock "giftVal" from the "valScript" validator
-unlockFundsFromScript :: PubKeyHash -> Integer -> TokenName -> Integer -> TxOutRef -> Value -> Tx
-unlockFundsFromScript ph amt tn pwd ref val =
+unlockFundsFromScript :: PubKeyHash -> Integer -> TokenName -> Integer -> Integer -> TxOutRef -> Value -> Tx
+unlockFundsFromScript ph amt tn pwd rdm ref val =
   mconcat
-    [ spendScript plutusScript ref (OnChain.Unlock pwd tn) (OnChain.EscrowDatum ph amt tn pwd)
+    [ spendScript plutusScript ref (OnChain.Unlock rdm tn) (OnChain.EscrowDatum ph amt tn pwd)
     , payToKey ph val
     ]
     -- txTransferNFT after this back to the admin user
 
+
+--------------------------------------------------------------------------
+---------------------------- PROPERTIES TO TEST --------------------------
+--------------------------------------------------------------------------
+
+-- Success
+prop_succss :: PubKeyHash -> Integer -> TokenName -> Integer -> Integer -> Property
+prop_succss ph amt tn pwd rdm = (pwd == rdm) ==> runChecks False ph amt tn pwd rdm
+
+-- Fail
+prop_fails :: PubKeyHash -> Integer -> TokenName -> Integer -> Integer -> Property
+prop_fails ph amt tn pwd rdm = (pwd /= rdm) ==> runChecks False ph amt tn pwd rdm
+
+-------------------------------------------------------------------------
+-------------------------------------------------------------------------
+
+
+-- | Check that the expected and real balances match after using the validator with different redeemers
+runChecks :: Bool -> PubKeyHash -> Integer -> TokenName -> Integer -> Integer -> Property
+runChecks shouldConsume ph amt tn pwd rdm = 
+  collect (pwd, rdm) $ monadic property check
+    where check = do
+            balancesMatch <- run $ testScenarios shouldConsume ph amt tn pwd rdm
+            assert balancesMatch
+
+
 -- | Core function to test if thinks work properly.
-testScenarios :: Bool -> PubKeyHash -> Integer -> TokenName -> Integer -> Run Bool
-testScenarios shouldSpendScript ph amt tn pwd = do
+testScenarios :: Bool -> PubKeyHash -> Integer -> TokenName -> Integer -> Integer -> Run Bool
+testScenarios shouldSpendScript ph amt tn pwd rdm = do
   [u1, u2] <- twoDemoUsers -- this [u1,u2] is a list of pubKeyHashes
   let adaValueToLock = adaValue 10
 
@@ -125,14 +157,19 @@ testScenarios shouldSpendScript ph amt tn pwd = do
   submitTx u1 $ lockFunds2Script ph amt tn pwd sp1 adaValueToLock -- User 1 submits "lockFunds2Script" transaction
 
   -- WAIT FOR A BIT
-  waitUntil waitBeforeConsumingTx
+  waitUntil waitForABit
+  txTransferNFT u1
+  waitUntil waitForABit
   utxos <- utxoAt plutusScript -- Query blockchain to get all UTxOs at script
 
   let [(oRef, oOut)] = utxos  -- We know there is only one utxo now, the one we just created.
-      tx = unlockFundsFromScript u2 amt tn pwd oRef (txOutValue oOut)
+      tx = unlockFundsFromScript u1 amt tn pwd rdm oRef (txOutValue oOut)
       v2Expected = if shouldSpendScript then adaValue 1010 else adaValue 1000
-      
-  if shouldSpendScript then submitTx u2 tx else mustFail . submitTx u2 $ tx  -- User 2 submits "consumingTx" transaction
+
+  if shouldSpendScript then submitTx u2 tx else mustFail . submitTx u1 $ tx  -- User 2 submits "consumingTx" transaction
+  
+  waitUntil waitForABit
+  txBurnNFT u1
   -- CHECK THAT FINAL BALANCES MATCH EXPECTED BALANCES
   [v1, v2] <- mapM valueAt [u1, u2]               -- Get final balances
   return $ v1 == adaValue 900 && v2 == v2Expected -- Check if final balances match expected balances

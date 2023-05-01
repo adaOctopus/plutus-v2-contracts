@@ -32,6 +32,7 @@ import           Test.QuickCheck         (Property, Testable (property),
 import           Test.QuickCheck.Monadic (assert, monadic, run)
 import           Test.Tasty              (defaultMain, testGroup)
 import           Test.Tasty.QuickCheck   as QC (testProperty)
+import Plutus.Contract.Test.ContractModel.Interface (transfer)
 
 
 -- | Helper functions for using Quickcheck
@@ -96,6 +97,16 @@ lockFunds2Script ph amt tn pwd usp vl =
     [ userSpend usp
     , payToScript valScript (InlineDatum (OnChain.EscrowDatum ph amt tn pwd)) vl
     ]
+    -- txTransferNFT after this to the user locking funds
 
 -- The core function where everything happens is the testValues. It is where we define the users,
 -- who spends what etc. Figure out a minting function for the fakeNFT.
+
+-- Create transaction that spends "giftRef" to unlock "giftVal" from the "valScript" validator
+unlockFundsFromScript :: PubKeyHash -> Integer -> TokenName -> Integer -> TxOutRef -> Value -> Tx
+unlockFundsFromScript ph amt tn pwd ref val =
+  mconcat
+    [ spendScript valScript ref (mkI pwd) (OnChain.EscrowDatum ph amt tn pwd)
+    , payToKey ph val
+    ]
+    -- txTransferNFT after this back to the admin user

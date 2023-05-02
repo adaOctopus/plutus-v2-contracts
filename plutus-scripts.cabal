@@ -9,11 +9,12 @@ Copyright:          © 2022 James Browning
 -- License-files:      LICENSE
 
 library
-  hs-source-dirs:      src/project-idea, src/project-idea/tests
+  hs-source-dirs:      src/project-idea, src/project-idea/tests, src/project-idea/utilities
   exposed-modules:     EscrowNFT,
                        PTEscrowNFT,
                        NegativeRTimed,
-                       PTPioneer
+                       PTPioneer,
+                       Utils
   build-depends:       aeson
                      , base ^>=4.14.1.0
                      , bytestring

@@ -139,7 +139,7 @@ unlockFundsFromScript ph amt tn pwd rdm ref val =
 
 -- Success
 prop_succss :: Integer -> Property
-prop_succss rdm = (rdm > 0) ==> runChecks True rdm
+prop_succss rdm = (rdm /= 0 && rdm > 0) ==> runChecks True rdm
 
 -- Fail
 prop_fails :: Integer -> Property

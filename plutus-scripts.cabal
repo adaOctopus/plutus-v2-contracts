@@ -11,7 +11,9 @@ Copyright:          © 2022 James Browning
 library
   hs-source-dirs:      src/project-idea, src/project-idea/tests
   exposed-modules:     EscrowNFT,
-                       PTEscrowNFT
+                       PTEscrowNFT,
+                       NegativeRTimed,
+                       PTPioneer
   build-depends:       aeson
                      , base ^>=4.14.1.0
                      , bytestring

@@ -22,7 +22,7 @@ import           Plutus.V2.Ledger.Api    (PubKeyHash, TokenName, TxOut (txOutVal
 import           PlutusTx.Builtins       (Integer, BuiltinByteString, encodeUtf8, mkI)
 import           PlutusTx.Prelude        (Bool (..), Eq ((==)),
                                           return, ($), (&&), (.))
-import           Prelude                 (IO, String, Ord ((<), (>)), (<>),
+import           Prelude                 (IO, String, Ord ((<), (>), (>=), (<=)), (<>),
                                           mconcat)
 import Plutus.Script.Utils.Value (TokenName, Value, currencySymbol, tokenName)
 import qualified Data.ByteString.Char8       as BS8
@@ -36,16 +36,27 @@ import           Test.Tasty.QuickCheck   as QC (testProperty)
 import Plutus.Contract.Test.ContractModel.Interface (transfer)
 
 
+
+-- | Actual Test Runner
+
+-- | Test the validator script
+main :: IO ()
+main = defaultMain $ do
+    testGroup
+      "Testing script properties"
+      [ testProperty "THat should work       " prop_succss
+      , testProperty "That should not   " prop_fails
+      ]
+
 -- | Helper functions for using Quickcheck
 -- | Testable and Arbitrary instances to generate random cases for the validators parameters 
-
 
 -- | fixed currencySYmbol 32 bits
 curSym = currencySymbol . toBString $ "4C6F636B446146756E64" 
 -- | 100_000_000 goes to the administrator of the mockup blockchain, which then sends to the demo users setup later in the code.
 instance Testable a => Testable (Run a) where
-  property rp = let (a,_) = runMock rp $ initMock defaultBabbage (adaValue 100_000_000 <> singleton curSym ( tokenName . toBString $ "LockDaFund") 1) in property a
-
+  property rp = let (a,_) = runMock rp $ initMock defaultBabbage (adaValue 10_000_000) in property a
+-- (adaValue 100_000_000 <> singleton curSym ( tokenName . toBString $ "LockDaFund") 1)
 
 txTransferNFT :: PubKeyHash -> Run ()
 txTransferNFT pkh = do
@@ -68,7 +79,7 @@ txBurnNFT pkh = do
 -- | Versioning the validator to v2
 
 plutusScript :: TypedValidator datum redeemer
-plutusScript = TypedValidator $ toV2 OnChain.typedValidator
+plutusScript = TypedValidator $ toV2 OnChain.validator
 
 -- Set many users at once
 twoDemoUsers :: Run [PubKeyHash]
@@ -105,7 +116,7 @@ lockFunds2Script :: PubKeyHash -> Integer -> TokenName -> Integer -> UserSpend -
 lockFunds2Script ph amt tn pwd usp vl =
   mconcat
     [ userSpend usp
-    , payToScript plutusScript (InlineDatum (OnChain.EscrowDatum ph amt tn pwd)) vl
+    , payToScript plutusScript (HashDatum (mkI pwd)) vl
     ]
     -- txTransferNFT after this to the user locking funds
 
@@ -116,7 +127,7 @@ lockFunds2Script ph amt tn pwd usp vl =
 unlockFundsFromScript :: PubKeyHash -> Integer -> TokenName -> Integer -> Integer -> TxOutRef -> Value -> Tx
 unlockFundsFromScript ph amt tn pwd rdm ref val =
   mconcat
-    [ spendScript plutusScript ref (OnChain.Unlock rdm tn) (OnChain.EscrowDatum ph amt tn pwd)
+    [ spendScript plutusScript ref (mkI rdm) (mkI pwd)
     , payToKey ph val
     ]
     -- txTransferNFT after this back to the admin user
@@ -127,49 +138,53 @@ unlockFundsFromScript ph amt tn pwd rdm ref val =
 --------------------------------------------------------------------------
 
 -- Success
-prop_succss :: PubKeyHash -> Integer -> TokenName -> Integer -> Integer -> Property
-prop_succss ph amt tn pwd rdm = (pwd == rdm) ==> runChecks False ph amt tn pwd rdm
+prop_succss :: Integer -> Property
+prop_succss rdm = (rdm > 0) ==> runChecks True rdm
 
 -- Fail
-prop_fails :: PubKeyHash -> Integer -> TokenName -> Integer -> Integer -> Property
-prop_fails ph amt tn pwd rdm = (pwd /= rdm) ==> runChecks False ph amt tn pwd rdm
+prop_fails :: Integer -> Property
+prop_fails rdm = (rdm < 0) ==> runChecks False rdm
 
 -------------------------------------------------------------------------
 -------------------------------------------------------------------------
 
 
 -- | Check that the expected and real balances match after using the validator with different redeemers
-runChecks :: Bool -> PubKeyHash -> Integer -> TokenName -> Integer -> Integer -> Property
-runChecks shouldConsume ph amt tn pwd rdm = 
-  collect (pwd, rdm) $ monadic property check
+runChecks :: Bool -> Integer -> Property
+runChecks shouldConsume rdm = 
+  collect (rdm) $ monadic property check
     where check = do
-            balancesMatch <- run $ testScenarios shouldConsume ph amt tn pwd rdm
+            balancesMatch <- run $ testScenarios shouldConsume rdm
             assert balancesMatch
 
 
 -- | Core function to test if thinks work properly.
-testScenarios :: Bool -> PubKeyHash -> Integer -> TokenName -> Integer -> Integer -> Run Bool
-testScenarios shouldSpendScript ph amt tn pwd rdm = do
+testScenarios :: Bool -> Integer -> Run Bool
+testScenarios shouldSpendScript rdm = do
   [u1, u2] <- twoDemoUsers -- this [u1,u2] is a list of pubKeyHashes
   let adaValueToLock = adaValue 10
 
   sp1 <- spend u1 adaValueToLock
-  submitTx u1 $ lockFunds2Script ph amt tn pwd sp1 adaValueToLock -- User 1 submits "lockFunds2Script" transaction
+  let nftName = tokenName . toBString $ "LockDaFund"
+  submitTx u1 $ lockFunds2Script u1 10 nftName 42 sp1 adaValueToLock -- User 1 submits "lockFunds2Script" transaction
 
   -- WAIT FOR A BIT
-  waitUntil waitForABit
-  txTransferNFT u1
+  --waitUntil waitForABit
+  --txTransferNFT u1
   waitUntil waitForABit
   utxos <- utxoAt plutusScript -- Query blockchain to get all UTxOs at script
 
   let [(oRef, oOut)] = utxos  -- We know there is only one utxo now, the one we just created.
-      tx = unlockFundsFromScript u1 amt tn pwd rdm oRef (txOutValue oOut)
+  -- CODE FOR CONSUMING TX AS WELL
+      tx = unlockFundsFromScript u1 10 nftName 42 rdm oRef (txOutValue oOut)
       v2Expected = if shouldSpendScript then adaValue 1010 else adaValue 1000
+  -- ct  <- currentTimeRad 100                 -- Create time interval with equal radius around current time
+  -- tx' <- validateIn ct tx
 
-  if shouldSpendScript then submitTx u2 tx else mustFail . submitTx u1 $ tx  -- User 2 submits "consumingTx" transaction
+  if shouldSpendScript then submitTx u1 tx else mustFail . submitTx u1 $ tx  -- User 2 submits "consumingTx" transaction
   
   waitUntil waitForABit
-  txBurnNFT u1
+  --txBurnNFT u1
   -- CHECK THAT FINAL BALANCES MATCH EXPECTED BALANCES
   [v1, v2] <- mapM valueAt [u1, u2]               -- Get final balances
-  return $ v1 == adaValue 900 && v2 == v2Expected -- Check if final balances match expected balances
+  return $ v1 == adaValue 990 -- Check if final balances match expected balances

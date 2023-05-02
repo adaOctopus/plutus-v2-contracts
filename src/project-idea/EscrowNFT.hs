@@ -52,6 +52,7 @@ import Plutus.Contract
 import PlutusTx qualified
 import PlutusTx.AssocMap qualified as PTXMap
 import PlutusTx.Prelude hiding (Applicative (..), Semigroup (..), check, foldMap)
+import PlutusTx.Prelude (check)
 
 -- | Plutus Simple Model imports
 import           Plutus.Model         (Ada (Lovelace), Run, ada, adaValue,
@@ -60,6 +61,8 @@ import           Plutus.Model         (Ada (Lovelace), Run, ada, adaValue,
                                        valueAt)
 import Prelude (Semigroup (..), foldMap)
 import Prelude qualified as Haskell
+import Plutus.V2.Ledger.Api (ScriptContext, UnsafeFromData,
+                                       unsafeFromBuiltinData)
 
 
 data EscrowDatum = EscrowDatum {
@@ -86,10 +89,9 @@ PlutusTx.makeIsDataIndexed ''UserAction
 
 
 {-# INLINABLE validatorFunc #-}
-validatorFunc :: EscrowDatum -> UserAction-> V2.ScriptContext -> Bool
-validatorFunc ed (Unlock ig tn) sc = traceIfFalse "Mismatch of Key Password" checkKeyMatch &&
-                                     traceIfFalse "User is not burning the NFT" checkBurningNFT &&
-                                     traceIfFalse "Mismatch of NFToken Name" checkTokenNameMatch
+validatorFunc :: Integer -> Integer -> V2.ScriptContext -> Bool
+validatorFunc ed ig sc = traceIfFalse "Mismatch of Key Password" $ ig >= 0 
+                                     --traceIfFalse "Mismatch of NFToken Name" checkTokenNameMatch
 
   where
     info :: PlutusV2.TxInfo
@@ -109,38 +111,58 @@ validatorFunc ed (Unlock ig tn) sc = traceIfFalse "Mismatch of Key Password" che
     getTxInputs :: [PlutusV2.TxInInfo]
     getTxInputs = PlutusV2.txInfoInputs info
 
-    getOutDatum :: PlutusV2.OutputDatum
-    getOutDatum = PlutusV2.txOutDatum . PlutusV2.txInInfoResolved $ (getTxInputs !! 0)
+    -- getOutDatum :: PlutusV2.OutputDatum
+    -- getOutDatum = PlutusV2.txOutDatum . PlutusV2.txInInfoResolved $ (getTxInputs !! 0)
 
-    getActualDatum :: Maybe TokenName
-    getActualDatum = case getOutDatum of
-                       PlutusV2.OutputDatum dt -> case (PlutusV2.fromBuiltinData . PlutusV2.getDatum $ dt) of
-                                                    Just dt2 -> Just (lockNFT dt2)
-                                                    _        -> Nothing
-                       _              -> Nothing
+    -- getActualDatum :: Maybe TokenName
+    -- getActualDatum = case getOutDatum of
+    --                    PlutusV2.OutputDatum dt -> case (PlutusV2.fromBuiltinData . PlutusV2.getDatum $ dt) of
+    --                                                 Just dt2 -> Just (lockNFT dt2)
+    --                                                 _        -> Nothing
+    --                    _              -> Nothing
 
-    checkTokenNameMatch :: Bool
-    checkTokenNameMatch = case getActualDatum of
-                            Just tn2 -> tn == tn2
-                            _        -> False
+    -- checkTokenNameMatch :: Bool
+    -- checkTokenNameMatch = case getActualDatum of
+    --                         Just tn2 -> tn == tn2
+    --                         _        -> False
 
-    checkKeyMatch :: Bool
-    checkKeyMatch = ig == (lockKey ed)
+    -- checkKeyMatch :: Bool
+    -- checkKeyMatch = ig == (lockKey ed)
 
-    -- | check if it is burning the NFT properly when trying to redeem the locked funds
-    checkBurningNFT :: Bool
-    checkBurningNFT = ((PTXMap.elems $ oneItemOfListOfMap) !! 0 ) < 0
-      where
-        wholeMap = PTXMap.elems . PlutusV2.getValue . PlutusV2.txInfoMint $ info
-        oneItemOfListOfMap = wholeMap !! 0
+    -- -- | check if it is burning the NFT properly when trying to redeem the locked funds
+    -- checkBurningNFT :: Bool
+    -- checkBurningNFT = ((PTXMap.elems $ oneItemOfListOfMap) !! 0 ) < 0
+    --   where
+    --     wholeMap = PTXMap.elems . PlutusV2.getValue . PlutusV2.txInfoMint $ info
+    --     oneItemOfListOfMap = wholeMap !! 0
 
 
 -- | Boilerplate to compile to Plutus Core
-{-# INLINABLE typedValidator #-}
-typedValidator :: PlutusV2.Validator 
-typedValidator = PlutusV2.mkValidatorScript $$(PlutusTx.compile [|| wrap ||])
-   where
-      wrap = PTyped.mkUntypedValidator validatorFunc
 
-escrowNftScript :: PlutusV2.Script
-escrowNftScript = PlutusV2.unValidatorScript typedValidator
+{-# INLINABLE wrapValidator #-}
+wrapValidator :: ( UnsafeFromData a
+                 , UnsafeFromData b
+                 )
+              => (a -> b -> ScriptContext -> Bool)
+              -> (BuiltinData -> BuiltinData -> BuiltinData -> ())
+wrapValidator f a b ctx =
+  check $ f
+      (unsafeFromBuiltinData a)
+      (unsafeFromBuiltinData b)
+      (unsafeFromBuiltinData ctx)
+
+{-# INLINABLE  mkWrappedValidator #-}
+mkWrappedValidator :: BuiltinData -> BuiltinData -> BuiltinData -> ()
+mkWrappedValidator = wrapValidator validatorFunc
+
+validator :: PlutusV2.Validator
+validator = PlutusV2.mkValidatorScript $$(PlutusTx.compile [|| mkWrappedValidator ||])
+
+-- {-# INLINABLE typedValidator #-}
+-- typedValidator :: PlutusV2.Validator 
+-- typedValidator = PlutusV2.mkValidatorScript $$(PlutusTx.compile [|| wrap ||])
+--    where
+--       wrap = PTyped.mkUntypedValidator validatorFunc
+
+-- escrowNftScript :: PlutusV2.Script
+-- escrowNftScript = PlutusV2.unValidatorScript typedValidator

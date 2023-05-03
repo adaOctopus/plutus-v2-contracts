@@ -112,8 +112,8 @@ nftTokenValue = fakeValue nftToken 1
 -- | "usp" is basically the users utxos that will be used as inputs in the transaction to be consumed for locking funds to script.
 -- | For a new utxo to come, another has to die.
 
-lockFunds2Script :: PubKeyHash -> Integer -> TokenName -> Integer -> UserSpend -> Value -> Tx
-lockFunds2Script ph amt tn pwd usp vl =
+lockFunds2Script :: Integer -> UserSpend -> Value -> Tx
+lockFunds2Script pwd usp vl =
   mconcat
     [ userSpend usp
     , payToScript plutusScript (HashDatum (mkI pwd)) vl
@@ -124,10 +124,10 @@ lockFunds2Script ph amt tn pwd usp vl =
 -- who spends what etc. Figure out a minting function for the fakeNFT.
 
 -- Create transaction that spends "giftRef" to unlock "giftVal" from the "valScript" validator
-unlockFundsFromScript :: PubKeyHash -> Integer -> TokenName -> Integer -> Integer -> TxOutRef -> Value -> Tx
-unlockFundsFromScript ph amt tn pwd rdm ref val =
+unlockFundsFromScript :: Integer -> Integer -> PubKeyHash -> TxOutRef -> Value -> Tx
+unlockFundsFromScript dt rd ph ref val =
   mconcat
-    [ spendScript plutusScript ref (mkI rdm) (mkI pwd)
+    [ spendScript plutusScript ref (mkI rd) (mkI dt)
     , payToKey ph val
     ]
     -- txTransferNFT after this back to the admin user
@@ -166,7 +166,7 @@ testScenarios shouldSpendScript rdm = do
 
   sp1 <- spend u1 adaValueToLock
   let nftName = tokenName . toBString $ "LockDaFund"
-  submitTx u1 $ lockFunds2Script u1 10 nftName 42 sp1 adaValueToLock -- User 1 submits "lockFunds2Script" transaction
+  submitTx u1 $ lockFunds2Script 10 sp1 adaValueToLock  -- User 1 submits "lockFunds2Script" transaction
 
   -- WAIT FOR A BIT
   --waitUntil waitForABit
@@ -176,15 +176,13 @@ testScenarios shouldSpendScript rdm = do
 
   let [(oRef, oOut)] = utxos  -- We know there is only one utxo now, the one we just created.
   -- CODE FOR CONSUMING TX AS WELL
-      tx = unlockFundsFromScript u1 10 nftName 42 rdm oRef (txOutValue oOut)
+      tx = unlockFundsFromScript 10 rdm u2 oRef (txOutValue oOut)
       v2Expected = if shouldSpendScript then adaValue 1010 else adaValue 1000
-  -- ct  <- currentTimeRad 100                 -- Create time interval with equal radius around current time
-  -- tx' <- validateIn ct tx
+  ct  <- currentTimeRad 100                 -- Create time interval with equal radius around current time
+  tx' <- validateIn ct tx
 
-  if shouldSpendScript then submitTx u1 tx else mustFail . submitTx u1 $ tx  -- User 2 submits "consumingTx" transaction
-  
-  waitUntil waitForABit
+  if shouldSpendScript then submitTx u2 tx' else mustFail . submitTx u2 $ tx'  -- User 2 submits "consumingTx" transaction
   --txBurnNFT u1
   -- CHECK THAT FINAL BALANCES MATCH EXPECTED BALANCES
   [v1, v2] <- mapM valueAt [u1, u2]               -- Get final balances
-  return $ v1 == adaValue 990 -- Check if final balances match expected balances
+  return $ v1 == adaValue 990 && v2 == v2Expected -- Check if final balances match expected balances
